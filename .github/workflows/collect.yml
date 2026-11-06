@@ -1,0 +1,29 @@
+name: 每日抓資料
+
+on:
+  schedule:
+    # 台北時間週一到週六 05:30（UTC 前一天 21:30）
+    - cron: "30 21 * * 0-5"
+  workflow_dispatch:   # 讓你可以在 Actions 頁面手動按「Run workflow」
+
+permissions:
+  contents: write
+
+jobs:
+  collect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -r requirements.txt
+      - run: python collect.py
+      - name: 存檔
+        run: |
+          git config user.name "github-actions"
+          git config user.email "github-actions@users.noreply.github.com"
+          git add data
+          git commit -m "data $(TZ=Asia/Taipei date +%F)" || echo "沒有新資料"
+          git push
