@@ -74,11 +74,59 @@ def yf_close(sym, period="1mo"):
     return s
 
 
-def quote(sym):
+def quote(sym, ref_date=None):
+    """ref_date：預期的最新交易日（字串）。歷史資料比它舊時，改用 Yahoo 的即時報價"""
     s = yf_close(sym)
     last, prev = float(s.iloc[-1]), float(s.iloc[-2])
+    date = s.index[-1].strftime("%Y-%m-%d")
+    if ref_date and date < ref_date:
+        try:
+            import yfinance as yf
+            fi = yf.Ticker(sym).fast_info
+            lp, pc = float(fi["lastPrice"]), float(fi["previousClose"])
+            if lp > 0 and pc > 0 and abs(lp - last) > 1e-9:
+                last, prev, date = lp, pc, ref_date
+        except Exception:
+            log_err(f"{sym} fast_info")
     return {"v": r(last, 4), "chg": r(last - prev, 4), "pct": r((last / prev - 1) * 100, 2),
-            "date": s.index[-1].strftime("%Y-%m-%d")}
+            "date": date}
+
+
+# ---------------- 證交所：加權指數 ----------------
+def twse_taiex_month(d):
+    """證交所 FMTQIK：某個月每天的加權指數收盤"""
+    url = "https://www.twse.com.tw/rwd/zh/afterTrading/FMTQIK"
+    js = requests.get(url, params={"date": d.strftime("%Y%m01"), "response": "json"},
+                      headers=UA, timeout=30).json()
+    fields, rows = js.get("fields"), js.get("data")
+    if not fields and js.get("tables"):
+        fields, rows = js["tables"][0].get("fields"), js["tables"][0].get("data")
+    if not fields or not rows:
+        return pd.Series(dtype=float)
+    idx_col = [i for i, f in enumerate(fields) if "加權股價指數" in f][0]
+    out = {}
+    for row in rows:
+        y, m, dd = str(row[0]).split("/")
+        out[pd.Timestamp(int(y) + 1911, int(m), int(dd))] = float(str(row[idx_col]).replace(",", ""))
+    return pd.Series(out, dtype=float)
+
+
+def taiex_series(now):
+    """Yahoo 提供長歷史；最近兩個月用證交所官方收盤覆蓋並補上缺的日子。盤中執行時不收當天"""
+    s = yf_close("^TWII", "2y")
+    try:
+        first = now.replace(day=1)
+        prev_month = (first - dt.timedelta(days=1)).replace(day=1)
+        tw = pd.concat([twse_taiex_month(prev_month), twse_taiex_month(first)])
+        if not tw.empty:
+            s = s[s.index < tw.index.min()]
+            s = pd.concat([s, tw]).sort_index()
+    except Exception:
+        log_err("twse_taiex")
+    today = pd.Timestamp(now.date())
+    if now.hour < 14 or (now.hour == 14 and now.minute < 30):
+        s = s[s.index < today]   # 收盤（13:30）資料 14:30 前可能還沒定
+    return s[~s.index.duplicated(keep="last")]
 
 
 # ---------------- 證交所：全部上市股票每日收盤 ----------------
@@ -217,12 +265,22 @@ def foreign_oi(today):
     df = taifex_csv("https://www.taifex.com.tw/cht/3/futContractsDateDown",
                     {"queryStartDate": start, "queryEndDate": today.strftime("%Y/%m/%d"),
                      "commodityId": "TXF"})
-    df = df[df["身份別"].astype(str).str.contains("外資")]
+    print("期交所三大法人欄位：", list(df.columns))
+    who = [c for c in df.columns if "身份" in c or "身分" in c or "法人" in c]
+    if who:
+        df = df[df[who[0]].astype(str).str.contains("外資")]
+    else:  # 欄位名稱對不上時，找哪一欄的內容有「外資」
+        hit = [c for c in df.columns if df[c].astype(str).str.contains("外資").any()]
+        df = df[df[hit[0]].astype(str).str.contains("外資")]
+    prod = [c for c in df.columns if "商品" in c]
+    if prod:
+        df = df[df[prod[0]].astype(str).str.contains("臺股期貨|台股期貨|TXF")]
     col = [c for c in df.columns if "未平倉" in c and "淨額" in c and "口數" in c][0]
-    df = df.sort_values("日期")
+    dcol = [c for c in df.columns if "日期" in c][0]
+    df = df.sort_values(dcol)
     net = df[col].astype(str).str.replace(",", "").astype(float)
     return {"net": int(net.iloc[-1]), "chg": int(net.iloc[-1] - net.iloc[-2]) if len(net) > 1 else None,
-            "date": str(df["日期"].iloc[-1]).replace("/", "-")}
+            "date": str(df[dcol].iloc[-1]).replace("/", "-")}
 
 
 def night_session(today):
@@ -265,7 +323,7 @@ def main():
     # 台股加權指數（同時當作交易日曆）
     tw = None
     try:
-        tw = yf_close("^TWII", "2y")
+        tw = taiex_series(now)
         c, p = float(tw.iloc[-1]), float(tw.iloc[-2])
         last250, last60 = tw.iloc[-250:], tw.iloc[-60:]
         rets = np.log(tw / tw.shift(1)).dropna().iloc[-250:]
@@ -290,22 +348,23 @@ def main():
                               "close": r(q["v"]), "pct": q["pct"], "date": q["date"]})
         except Exception:
             log_err(sym)
+    us_ref = max([u["date"] for u in out["us"]], default=None)   # 美股最新交易日
     out["stocks"] = []
     for t, n, what in STOCKS:
         try:
-            q = quote(t)
+            q = quote(t, us_ref)
             out["stocks"].append({"t": t, "n": n, "what": what, "close": r(q["v"]), "pct": q["pct"]})
         except Exception:
             log_err(t)
     for k, sym in QUOTES.items():
         try:
-            out[k] = quote(sym)
+            out[k] = quote(sym, us_ref if k in ("vix", "vxn", "move", "hyg", "y10", "dxy") else None)
         except Exception:
             out[k] = None
             log_err(sym)
     if out.get("y10"):  # ^TNX 的單位就是 %，chg 是百分點
         out["y10"]["chg"] = r(out["y10"]["chg"], 3)
-    out["us_date"] = out["us"][0]["date"] if out["us"] else None
+    out["us_date"] = us_ref
     out["risk"] = risk_score(out.get("y10"), out.get("dxy"), out.get("vix"))
 
     # 多空排列廣度 + 抓底訊號
