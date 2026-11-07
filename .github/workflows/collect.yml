@@ -2,8 +2,10 @@ name: 每日抓資料
 
 on:
   schedule:
-    # 台北時間週一到週六 05:30（UTC 前一天 21:30）
-    - cron: "30 21 * * 0-5"
+    # 台北時間週一到週六 05:07、05:37、06:07 各抓一次（GitHub 有時會延遲）
+    - cron: "7 21 * * 0-5"
+    - cron: "37 21 * * 0-5"
+    - cron: "7 22 * * 0-5"
   workflow_dispatch:   # 讓你可以在 Actions 頁面手動按「Run workflow」
 
 permissions:
@@ -24,6 +26,7 @@ jobs:
         run: |
           git config user.name "github-actions"
           git config user.email "github-actions@users.noreply.github.com"
+          git pull --rebase || true
           git add data
           git commit -m "data $(TZ=Asia/Taipei date +%F)" || echo "沒有新資料"
           git push
