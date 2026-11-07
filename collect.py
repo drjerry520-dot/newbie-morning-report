@@ -37,6 +37,17 @@ STOCKS = [
     ("ARM", "安謀", "設計晶片架構，授權給別人用"),
     ("PLTR", "Palantir", "數據分析與 AI 軟體"),
 ]
+TW_STOCKS = [
+    ("2330.TW", "2330", "台積電", "全球最大晶圓代工，台股權重最大"),
+    ("2317.TW", "2317", "鴻海", "電子代工、AI 伺服器"),
+    ("2454.TW", "2454", "聯發科", "手機與 AI 晶片設計"),
+    ("2308.TW", "2308", "台達電", "電源、散熱、AI 機房設備"),
+    ("2382.TW", "2382", "廣達", "筆電與 AI 伺服器代工"),
+]
+WATCH = [  # 使用者的追蹤股
+    ("6696.TWO", "6696", "仁新", "新藥研發（眼科、代謝疾病），興櫃", "tw"),
+    ("BLTE", "BLTE", "Belite Bio", "仁新在美國那斯達克掛牌的子公司，做眼科新藥", "us"),
+]
 QUOTES = {  # key: yahoo 代號
     "vix": "^VIX", "vxn": "^VXN", "move": "^MOVE", "hyg": "HYG",
     "y10": "^TNX", "dxy": "DX-Y.NYB", "brent": "BZ=F", "wti": "CL=F",
@@ -90,6 +101,17 @@ def quote(sym, ref_date=None):
             log_err(f"{sym} fast_info")
     return {"v": r(last, 4), "chg": r(last - prev, 4), "pct": r((last / prev - 1) * 100, 2),
             "date": date}
+
+
+def tw_quote(sym, now):
+    """台股個股：盤中執行時不收當天（避免抓到盤中價）"""
+    s = yf_close(sym, "3mo")
+    if now.hour < 14 or (now.hour == 14 and now.minute < 30):
+        s = s[s.index < pd.Timestamp(now.date())]
+    last, prev = float(s.iloc[-1]), float(s.iloc[-2])
+    return {"v": r(last, 2), "chg": r(last - prev, 2), "pct": r((last / prev - 1) * 100, 2),
+            "date": s.index[-1].strftime("%Y-%m-%d"),
+            "hist": [[d.strftime("%m-%d"), r(v)] for d, v in s.iloc[-20:].items()]}
 
 
 # ---------------- 證交所：加權指數 ----------------
@@ -356,6 +378,24 @@ def main():
             out["stocks"].append({"t": t, "n": n, "what": what, "close": r(q["v"]), "pct": q["pct"]})
         except Exception:
             log_err(t)
+    out["tw_stocks"] = []
+    for sym, code, n, what in TW_STOCKS:
+        try:
+            q = tw_quote(sym, now)
+            q.pop("hist", None)
+            out["tw_stocks"].append({"t": code, "n": n, "what": what, "close": q["v"], "pct": q["pct"], "date": q["date"]})
+        except Exception:
+            log_err(sym)
+    out["watch"] = []
+    for sym, code, n, what, mkt in WATCH:
+        try:
+            q = tw_quote(sym, now) if mkt == "tw" else quote(sym, us_ref)
+            if mkt == "us":
+                q["hist"] = [[d.strftime("%m-%d"), r(v)] for d, v in yf_close(sym, "3mo").iloc[-20:].items()]
+            out["watch"].append({"t": code, "n": n, "what": what, "mkt": mkt, "close": r(q["v"]),
+                                 "pct": q["pct"], "date": q["date"], "hist": q.get("hist", [])})
+        except Exception:
+            log_err(sym)
     for k, sym in QUOTES.items():
         try:
             out[k] = quote(sym, us_ref if k in ("vix", "vxn", "move", "hyg", "y10", "dxy") else None)
