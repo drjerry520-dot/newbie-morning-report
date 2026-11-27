@@ -1,7 +1,7 @@
 {
- "generated_at": "2026-11-27T11:36+08:00",
+ "generated_at": "2026-11-27T11:45+08:00",
  "errors": [
-  "foreign_oi: requests.exceptions.ReadTimeout: HTTPSConnectionPool(host='www.taifex.com.tw', port=443): Read timed out. (read timeout=30)"
+  "foreign_oi: IndexError: list index out of range"
  ],
  "taiex": {
   "date": "2026-11-26",
@@ -404,33 +404,33 @@
   "date": "2026-11-25"
  },
  "dxy": {
-  "v": 103.693,
-  "chg": 0.023,
+  "v": 103.686,
+  "chg": 0.016,
   "pct": 0.02,
   "date": "2026-11-26"
  },
  "brent": {
-  "v": 92.29,
-  "chg": -2.32,
-  "pct": -2.45,
+  "v": 92.24,
+  "chg": -2.37,
+  "pct": -2.51,
   "date": "2026-11-26"
  },
  "wti": {
-  "v": 85.74,
-  "chg": 2.06,
-  "pct": 2.46,
+  "v": 85.7,
+  "chg": 2.02,
+  "pct": 2.41,
   "date": "2026-11-26"
  },
  "gold": {
-  "v": 3653.3999,
-  "chg": 117.5999,
-  "pct": 3.33,
+  "v": 3653.8999,
+  "chg": 118.0999,
+  "pct": 3.34,
   "date": "2026-11-26"
  },
  "btc": {
-  "v": 61453.2383,
-  "chg": 1075.0391,
-  "pct": 1.78,
+  "v": 61402.1992,
+  "chg": 1024.0,
+  "pct": 1.7,
   "date": "2026-11-27"
  },
  "us_date": "2026-11-25",
